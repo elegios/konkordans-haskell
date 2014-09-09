@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, RankNTypes, OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
@@ -8,10 +8,9 @@ import Data.Char (isSpace)
 import Control.Monad.State
 import Data.Maybe (fromJust)
 import System.IO (Handle, isEOF, openFile, IOMode(WriteMode), hTell)
-import Control.Monad.Identity (runIdentity, Identity(..))
-import Control.Applicative (getConst, Const(..))
 import Data.Char (ord)
 import Data.Binary (encode)
+
 
 main :: IO ()
 main = do
@@ -22,30 +21,7 @@ main = do
 
 type Worker a = StateT Positions IO a
 
-data Positions = Positions {_lazyH::Handle, _word::Handle, _positionH::Handle} deriving Show
-
-type Lens s a = Functor f => (a -> f a) -> s -> f s
-
-lazyH :: Functor f => (Handle -> f Handle) -> Positions -> f Positions
-lazyH f (Positions l w p) = fmap (\ll -> Positions ll w p) $ f l
-
-wordH :: Functor f => (Handle -> f Handle) -> Positions -> f Positions
-wordH f (Positions l w p) = fmap (\ww -> Positions l ww p) $ f w
-
-positionH :: Functor f => (Handle -> f Handle) -> Positions -> f Positions
-positionH f (Positions l w p) = fmap (\pp -> Positions l w pp) $ f p
-
-_1 :: Functor f => (a -> f a) -> (a, b) -> f (a, b)
-_1 f (x,y) = fmap (,y) $ f x
-
-_2 :: Functor f => (a -> f a) -> (b, a) -> f (b, a)
-_2 f (x,y) = fmap (x,) $ f y
-
-over :: Lens s a -> (a -> a) -> s -> s
-over ln f = runIdentity . ln (Identity . f)
-
-view :: Lens s a -> s -> a
-view ln s = getConst $ ln Const s
+data Positions = Positions {lazyH::Handle, wordH::Handle, positionH::Handle} deriving Show
 
 buildIndex :: (BS.ByteString, BS.ByteString) -> Worker ()
 buildIndex prevData = liftIO isEOF >>= \end -> if end then return () else do
@@ -70,18 +46,18 @@ writeKey :: BS.ByteString -> BS.ByteString -> Worker ()
 writeKey lastKey key = if lastKey == key then return ()
 	else do
 		replicateM_ ((hash key) - (hash lastKey)) $ writePos lazyH (-1)
-		get >>= liftIO . hTell . view lazyH >>= writePos lazyH . fromInteger
+		get >>= liftIO . hTell . lazyH >>= writePos lazyH . fromInteger
 
-writePos :: Lens Positions Handle -> Int -> Worker ()
-writePos l p = do
-	handle <- get >>= return . view l
+writePos :: (Positions -> Handle) -> Int -> Worker ()
+writePos h p = do
+	handle <- get >>= return . h
 	liftIO . writeInt handle $ p
 
 writeWord :: BS.ByteString -> Worker ()
 writeWord word = do
-	handle <- get >>= return . view wordH
+	handle <- get >>= return . wordH
 	liftIO $ BS.hPut handle word
-	get >>= \st -> liftIO $ hTell (view positionH st) >>= writeInt handle . fromInteger
+	get >>= \st -> liftIO $ hTell (positionH st) >>= writeInt handle . fromInteger
 
 writeInt :: Handle -> Int -> IO ()
 writeInt handle = LBS.hPut handle . encode
