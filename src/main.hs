@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, ScopedTypeVariables #-}
 
 module Main where
 
@@ -7,17 +7,76 @@ import qualified Data.ByteString.Lazy as LBS
 import Data.Char (isSpace)
 import Control.Monad.State
 import Data.Maybe (fromJust)
-import System.IO (Handle, isEOF, openFile, IOMode(WriteMode), hTell)
+import System.IO (Handle, isEOF, openFile, IOMode(WriteMode, ReadMode), hTell, hSeek, SeekMode(AbsoluteSeek))
 import Data.Char (ord)
-import Data.Binary (encode)
+import Data.Binary (decode, encode)
+import System.Environment (getArgs)
+import Data.Functor ((<$>))
 
 
 main :: IO ()
 main = do
-	l <- openFile "index/lazyH" WriteMode
-	w <- openFile "index/wordH" WriteMode
-	p <- openFile "index/positionH" WriteMode
-	void $ runStateT (buildIndex ("", "")) $ Positions l w p
+	(word:_) <- getArgs
+	if word == "build-index" then
+		openFiles WriteMode >>= void . runStateT (buildIndex ("", ""))
+	else do
+		p <- openFiles ReadMode
+		t <- openFile "korpus" ReadMode
+		hSeek (lazyH p) AbsoluteSeek . toInteger . (*8) . hash $ BS.pack word
+		wordPointer <- readInt $ lazyH p
+		endPointer <- readInt $ lazyH p
+		pointerPointer <- search (wordH p) wordPointer endPointer $ BS.pack word
+		case pointerPointer of
+			Nothing -> putStr $ "Could not find " ++ word
+			Just a -> do
+				hSeek (positionH p) AbsoluteSeek $ toInteger a
+				printOccurrences (positionH p) t (length word)
+		return ()
+
+printOccurrences :: Handle -> Handle -> Int -> IO ()
+printOccurrences positionHandle textHandle l = do
+	p <- readInt positionHandle
+	if p == -1 then return () else do
+		hSeek textHandle AbsoluteSeek $ toInteger p - 30
+		text <- BS.hGet textHandle (30*2 + l)
+		BS.putStrLn . BS.map (\c -> if c == '\n' then ' ' else c) $ text
+		printOccurrences positionHandle textHandle l
+
+search :: Handle -> Int -> Int -> BS.ByteString -> IO (Maybe Int)
+search index start end word = do
+	firstWord <- BS.hGetLine index
+	if firstWord > word
+		then return Nothing
+		else linsearch index start word
+
+linsearch :: Handle -> Int -> BS.ByteString -> IO (Maybe Int)
+linsearch index start word = do
+	hSeek index AbsoluteSeek $ toInteger start
+	linesearchRec
+	where
+		linesearchRec = do
+			testWord <- BS.hGetLine index
+			case compare testWord word of
+				GT -> return Nothing 
+				EQ -> Just <$> readInt index
+				LT -> readInt index >> linesearchRec
+
+
+{-binsearch :: Handle -> Int -> Int -> BS.ByteString -> IO (Maybe Int)
+binsearch index start end word = do
+	hSeek index AbsoluteSeek ((end - start)/2)
+	BS.hGetLine index >> readInt index
+	wordPos <- hTell -}
+
+readInt :: Handle -> IO Int
+readInt h = decode <$> LBS.hGet h 8
+
+openFiles :: IOMode -> IO Positions
+openFiles mode = do
+	l <- openFile "index/lazyH" mode
+	w <- openFile "index/wordH" mode
+	p <- openFile "index/positionH" mode
+	return $ Positions l w p
 
 type Worker a = StateT Positions IO a
 
@@ -45,8 +104,8 @@ checkWordAndKey (lastKey, lastWord) word =
 writeKey :: BS.ByteString -> BS.ByteString -> Worker ()
 writeKey lastKey key = if lastKey == key then return ()
 	else do
-		replicateM_ ((hash key) - (hash lastKey)) $ writePos lazyH (-1)
-		get >>= liftIO . hTell . lazyH >>= writePos lazyH . fromInteger
+		wordPointer <- fromInteger <$> (get >>= liftIO . hTell . wordH)
+		replicateM_ ((hash key) - (hash lastKey) + 1) $ writePos lazyH wordPointer
 
 writePos :: (Positions -> Handle) -> Int -> Worker ()
 writePos h p = do
@@ -57,7 +116,8 @@ writeWord :: BS.ByteString -> Worker ()
 writeWord word = do
 	handle <- get >>= return . wordH
 	liftIO $ BS.hPut handle word
-	get >>= \st -> liftIO $ hTell (positionH st) >>= writeInt handle . fromInteger
+	liftIO $ BS.hPut handle "\n"
+	get >>= liftIO . hTell . positionH >>= liftIO . writeInt handle . fromInteger
 
 writeInt :: Handle -> Int -> IO ()
 writeInt handle = LBS.hPut handle . encode
