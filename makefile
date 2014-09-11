@@ -24,10 +24,7 @@ buildkth: tokenizer
 
 
 test:
-	cd /tmp/konkordans; \
-	yes | ./konkordans-haskell för | head -n 100; \
-	yes | ./konkordans-haskell regering | tail -n 100; \
-	yes | ./konkordans-haskell i | tail;
+	cd /tmp/konkordans; echo "för\nregering\ni\nööö\nöööh" | while read r do; yes | ./konkordans-haskell $r | tail -n 100; done;
 
 ifeq (run,$(firstword $(MAKECMDGOALS)))
   RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
