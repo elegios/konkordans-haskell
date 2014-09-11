@@ -12,6 +12,7 @@ import Data.Char (ord)
 import Data.Binary (decode, encode)
 import System.Environment (getArgs)
 import Data.Functor ((<$>))
+import Debug.Trace
 
 boolean :: a -> a -> Bool -> a
 boolean a _ True = a
@@ -20,6 +21,7 @@ boolean _ a False = a
 main :: IO ()
 main = do
 	(word:_) <- getArgs
+	putStrLn . show $ BS.pack word
 	if word == "build-index" then
 		openFiles WriteMode >>= void . runStateT (buildIndex ("", ""))
 	else do
@@ -27,7 +29,7 @@ main = do
 		t <- openFile "korpus" ReadMode
 		hSeek (lazyH p) AbsoluteSeek . toInteger . (*8) . hash $ BS.pack word
 		wordPointer <- hIsEOF (lazyH p) >>= boolean (return $ -1) (readInt $ lazyH p)
-		pointerPointer <- search (wordH p) wordPointer $ BS.pack word
+		pointerPointer <- linsearch (wordH p) wordPointer $ BS.pack word
 		case pointerPointer of
 			Nothing -> putStrLn $ "Hittade inte " ++ word
 			Just a -> do
@@ -54,25 +56,20 @@ printOccurrences positionHandle textHandle l = do
 		let padding = replicateM_ (30 + postpos) (putStr " ")
 		printOccurrences positionHandle textHandle l >>= return . ((padding >> printWord) :)
 
-search :: Handle -> Int -> BS.ByteString -> IO (Maybe Int)
-search _ (-1) _ = return Nothing
-search index start word = do
-	firstWord <- BS.hGetLine index
-	if firstWord > word
-		then return Nothing
-		else linsearch index start word
-
 linsearch :: Handle -> Int -> BS.ByteString -> IO (Maybe Int)
+linsearch _ (-1) _ = return Nothing
 linsearch index start word = do
 	hSeek index AbsoluteSeek $ toInteger start
-	linesearchRec
+	nothingIfEnd
 	where
-		linesearchRec = do
+		nothingIfEnd = hIsEOF index >>= trace "blub" . boolean (return Nothing) linsearchRec
+		linsearchRec = do
 			testWord <- BS.hGetLine index
+			BS.putStrLn testWord
 			case compare testWord word of
 				GT -> return Nothing 
 				EQ -> Just <$> readInt index
-				LT -> readInt index >> linesearchRec
+				LT -> readInt index >> nothingIfEnd
 
 
 {-binsearch :: Handle -> Int -> Int -> BS.ByteString -> IO (Maybe Int)
