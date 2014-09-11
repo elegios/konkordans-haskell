@@ -49,7 +49,8 @@ printOccurrences positionHandle textHandle l = do
 		hSeek textHandle AbsoluteSeek $ toInteger (p + postpos)
 		text <- BS.hGet textHandle (30 - postpos + l)
 		let printWord = putStrLn . BS.unpack . BS.map (\c -> if c == '\n' then ' ' else c) $ text
-		printOccurrences positionHandle textHandle l >>= return . (printWord :)
+		let padding = replicateM_ (30 + postpos) (putStr " ")
+		printOccurrences positionHandle textHandle l >>= return . ((padding >> printWord) :)
 
 search :: Handle -> Int -> Int -> BS.ByteString -> IO (Maybe Int)
 search index start end word = do
