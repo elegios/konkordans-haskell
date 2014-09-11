@@ -7,12 +7,11 @@ import qualified Data.ByteString.Lazy as LBS
 import Data.Char (isSpace, toLower)
 import Control.Monad.State
 import Data.Maybe (fromJust)
-import System.IO (Handle, hIsEOF, isEOF, openFile, IOMode(WriteMode, ReadMode), hTell, hSeek, SeekMode(AbsoluteSeek))
+import System.IO (Handle, hFlush, hIsEOF, isEOF, openFile, IOMode(WriteMode, ReadMode), hTell, hSeek, SeekMode(AbsoluteSeek))
 import Data.Char (ord)
 import Data.Binary (decode, encode)
 import System.Environment (getArgs)
 import Data.Functor ((<$>))
-import Debug.Trace
 
 boolean :: a -> a -> Bool -> a
 boolean a _ True = a
@@ -21,9 +20,12 @@ boolean _ a False = a
 main :: IO ()
 main = do
 	(word:_) <- getArgs
-	putStrLn . show $ BS.pack word
-	if word == "build-index" then
-		openFiles WriteMode >>= void . runStateT (buildIndex ("", ""))
+	if word == "build-index" then do
+		p <- openFiles WriteMode
+		runStateT (buildIndex ("", "") >> writePos positionH (-1)) p
+		hFlush $ lazyH p
+		hFlush $ wordH p
+		hFlush $ positionH p
 	else do
 		p <- openFiles ReadMode
 		t <- openFile "korpus" ReadMode
@@ -62,10 +64,9 @@ linsearch index start word = do
 	hSeek index AbsoluteSeek $ toInteger start
 	nothingIfEnd
 	where
-		nothingIfEnd = hIsEOF index >>= trace "blub" . boolean (return Nothing) linsearchRec
+		nothingIfEnd = hIsEOF index >>= boolean (return Nothing) linsearchRec
 		linsearchRec = do
 			testWord <- BS.hGetLine index
-			BS.putStrLn testWord
 			case compare testWord word of
 				GT -> return Nothing 
 				EQ -> Just <$> readInt index
@@ -115,7 +116,7 @@ writeKey :: BS.ByteString -> BS.ByteString -> Worker ()
 writeKey lastKey key = if lastKey == key then return ()
 	else do
 		wordPointer <- fromInteger <$> (get >>= liftIO . hTell . wordH)
-		replicateM_ ((hash key) - (hash lastKey)) $ writePos lazyH (-1)
+		replicateM_ ((hash key) - (hash lastKey) - 1) $ writePos lazyH (-1)
 		writePos lazyH wordPointer
 
 writePos :: (Positions -> Handle) -> Int -> Worker ()
@@ -134,7 +135,7 @@ writeInt :: Handle -> Int -> IO ()
 writeInt handle = LBS.hPut handle . encode
 
 hash :: BS.ByteString -> Int
-hash = sum . zipWith (*) [900, 30, 1] . map chash . BS.unpack
+hash = (+(-1)) . sum . zipWith (*) [900, 30, 1] . map chash . BS.unpack
 	where
 		chash ' ' = 0
 		chash 'ä' = (chash 'z') + 1
