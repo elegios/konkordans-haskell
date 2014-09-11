@@ -4,7 +4,7 @@ module Main where
 
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as LBS
-import Data.Char (isSpace)
+import Data.Char (isSpace, toLower)
 import Control.Monad.State
 import Data.Maybe (fromJust)
 import System.IO (Handle, isEOF, openFile, IOMode(WriteMode, ReadMode), hTell, hSeek, SeekMode(AbsoluteSeek))
@@ -27,20 +27,29 @@ main = do
 		endPointer <- readInt $ lazyH p
 		pointerPointer <- search (wordH p) wordPointer endPointer $ BS.pack word
 		case pointerPointer of
-			Nothing -> putStr $ "Could not find " ++ word
+			Nothing -> putStr $ "Hittade inte " ++ word
 			Just a -> do
 				hSeek (positionH p) AbsoluteSeek $ toInteger a
-				printOccurrences (positionH p) t (length word)
-		return ()
+				occurrences <- printOccurrences (positionH p) t (length word)
+				putStrLn $ "Det finns " ++ show (length occurrences) ++ " förekomster av ordet."
+				if length occurrences > 25
+					then do
+						putStrLn "Oj! Det var många. Vill du printa dem?"
+						res <- getLine
+						case map toLower res of
+							'y':_ -> sequence_ occurrences
+							_ -> return ()
+					else sequence_ occurrences
 
-printOccurrences :: Handle -> Handle -> Int -> IO ()
+printOccurrences :: Handle -> Handle -> Int -> IO [IO ()]
 printOccurrences positionHandle textHandle l = do
 	p <- readInt positionHandle
-	if p == -1 then return () else do
-		hSeek textHandle AbsoluteSeek $ toInteger p - 30
-		text <- BS.hGet textHandle (30*2 + l)
-		BS.putStrLn . BS.map (\c -> if c == '\n' then ' ' else c) $ text
-		printOccurrences positionHandle textHandle l
+	let postpos = - 30 - (min (p - 30) 0)
+	if p == -1 then return [] else do
+		hSeek textHandle AbsoluteSeek $ toInteger (p + postpos)
+		text <- BS.hGet textHandle (30 - postpos + l)
+		let printWord = putStrLn . BS.unpack . BS.map (\c -> if c == '\n' then ' ' else c) $ text
+		printOccurrences positionHandle textHandle l >>= return . (printWord :)
 
 search :: Handle -> Int -> Int -> BS.ByteString -> IO (Maybe Int)
 search index start end word = do
