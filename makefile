@@ -20,7 +20,7 @@ buildkth: tokenizer
 	mv dist/build/konkordans-haskell/konkordans-haskell /tmp/konkordans
 	mv tokenizer /tmp/konkordans
 	ln -s /info/adk14/labb1/korpus /tmp/konkordans/korpus
-	cd /tmp/konkordans; export LC_COLLATE=C; cat korpus | ./tokenizer | sort -S 50% | tee sorted | ./konkordans-haskell build-index
+	cd /tmp/konkordans; export LC_COLLATE=C; cat korpus | ./tokenizer | sort -S 50% | ./konkordans-haskell build-index
 
 
 test:

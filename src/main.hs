@@ -7,12 +7,15 @@ import qualified Data.ByteString.Lazy as LBS
 import Data.Char (isSpace, toLower)
 import Control.Monad.State
 import Data.Maybe (fromJust)
-import System.IO (Handle, isEOF, openFile, IOMode(WriteMode, ReadMode), hTell, hSeek, SeekMode(AbsoluteSeek))
+import System.IO (Handle, hIsEOF, isEOF, openFile, IOMode(WriteMode, ReadMode), hTell, hSeek, SeekMode(AbsoluteSeek))
 import Data.Char (ord)
 import Data.Binary (decode, encode)
 import System.Environment (getArgs)
 import Data.Functor ((<$>))
 
+boolean :: a -> a -> Bool -> a
+boolean a _ True = a
+boolean _ a False = a
 
 main :: IO ()
 main = do
@@ -23,11 +26,10 @@ main = do
 		p <- openFiles ReadMode
 		t <- openFile "korpus" ReadMode
 		hSeek (lazyH p) AbsoluteSeek . toInteger . (*8) . hash $ BS.pack word
-		wordPointer <- readInt $ lazyH p
-		endPointer <- readInt $ lazyH p
-		pointerPointer <- search (wordH p) wordPointer endPointer $ BS.pack word
+		wordPointer <- hIsEOF (lazyH p) >>= boolean (return $ -1) (readInt $ lazyH p)
+		pointerPointer <- search (wordH p) wordPointer $ BS.pack word
 		case pointerPointer of
-			Nothing -> putStr $ "Hittade inte " ++ word
+			Nothing -> putStrLn $ "Hittade inte " ++ word
 			Just a -> do
 				hSeek (positionH p) AbsoluteSeek $ toInteger a
 				occurrences <- printOccurrences (positionH p) t (length word)
@@ -52,8 +54,9 @@ printOccurrences positionHandle textHandle l = do
 		let padding = replicateM_ (30 + postpos) (putStr " ")
 		printOccurrences positionHandle textHandle l >>= return . ((padding >> printWord) :)
 
-search :: Handle -> Int -> Int -> BS.ByteString -> IO (Maybe Int)
-search index start end word = do
+search :: Handle -> Int -> BS.ByteString -> IO (Maybe Int)
+search _ (-1) _ = return Nothing
+search index start word = do
 	firstWord <- BS.hGetLine index
 	if firstWord > word
 		then return Nothing
@@ -115,7 +118,8 @@ writeKey :: BS.ByteString -> BS.ByteString -> Worker ()
 writeKey lastKey key = if lastKey == key then return ()
 	else do
 		wordPointer <- fromInteger <$> (get >>= liftIO . hTell . wordH)
-		replicateM_ ((hash key) - (hash lastKey) + 1) $ writePos lazyH wordPointer
+		replicateM_ ((hash key) - (hash lastKey)) $ writePos lazyH (-1)
+		writePos lazyH wordPointer
 
 writePos :: (Positions -> Handle) -> Int -> Worker ()
 writePos h p = do
