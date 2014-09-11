@@ -21,3 +21,18 @@ buildkth: tokenizer
 	mv tokenizer /tmp/konkordans
 	ln -s /info/adk14/labb1/korpus /tmp/konkordans/korpus
 	cd /tmp/konkordans; export LC_COLLATE=C; cat korpus | ./tokenizer | sort -S 50% | tee sorted | ./konkordans-haskell build-index
+
+
+test:
+	cd /tmp/konkordans; \
+	yes | ./konkordans-haskell för | head -n 100; \
+	yes | ./konkordans-haskell regering | tail -n 100; \
+	yes | ./konkordans-haskell i | tail;
+
+ifeq (run,$(firstword $(MAKECMDGOALS)))
+  RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  $(eval $(RUN_ARGS):;@:)
+endif
+
+run:
+	cd /tmp/konkordans; ./konkordans-haskell ${RUN_ARGS}
